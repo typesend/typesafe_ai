@@ -59,7 +59,8 @@ func WithModel(m string) Option { return func(c *Client) { c.model = m } }
 // own attempt timeout; the retry policy's Budget bounds the whole call.
 func WithTimeout(d time.Duration) Option { return func(c *Client) { c.timeout = d } }
 
-// WithRetry sets the retry policy. Default DefaultRetryPolicy.
+// WithRetry sets the retry policy. Zero fields keep their defaults, so
+// RetryPolicy{MaxRetries: 5} changes only the retry count.
 func WithRetry(p RetryPolicy) Option { return func(c *Client) { c.retry = p } }
 
 // WithHTTPClient sets the underlying http.Client, for proxies, custom
@@ -108,7 +109,7 @@ func DefaultTransport() *http.Transport {
 // environment variables, then defaults. It returns a *Error of type
 // ErrValidation when no API key is found or an option is invalid.
 func New(opts ...Option) (*Client, error) {
-	c := &Client{retry: DefaultRetryPolicy()}
+	c := &Client{}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -137,9 +138,11 @@ func New(opts ...Option) (*Client, error) {
 	if c.timeout < 0 {
 		return nil, validationError("timeout must be positive, got %v", c.timeout)
 	}
-	if err := c.retry.validate(); err != nil {
+	retry, err := c.retry.normalized()
+	if err != nil {
 		return nil, err
 	}
+	c.retry = retry
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{Transport: DefaultTransport()}
 	}

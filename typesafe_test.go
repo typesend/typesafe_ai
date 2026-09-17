@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +63,89 @@ func TestNewResolvesConfig(t *testing.T) {
 	}
 	if _, err := typesafe.New(typesafe.WithAPIKey("k"), typesafe.WithRetry(typesafe.RetryPolicy{BackoffJitter: 2})); err == nil {
 		t.Fatal("expected invalid retry policy error")
+	}
+	partial, _ := typesafe.New(typesafe.WithAPIKey("k"), typesafe.WithRetry(typesafe.RetryPolicy{MaxRetries: 5}))
+	if partial.Retry().Budget != 30*time.Second || len(partial.Retry().Statuses) == 0 {
+		t.Fatalf("partial retry literal lost defaults: %+v", partial.Retry())
+	}
+}
+
+func TestEvaluateStreamYieldsAsCompletedAndStopsEarly(t *testing.T) {
+	srv := typesafetest.NewServer(t)
+	srv.Handle(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ State string }
+		raw, _ := json.Marshal(mustBody(r))
+		_ = json.Unmarshal(raw, &body)
+		var n float64
+		_, _ = fmt.Sscanf(body.State, "%f", &n)
+		time.Sleep(time.Duration(n) * time.Millisecond)
+		typesafetest.JSON(w, 200, map[string]any{"model": "m",
+			"answers": map[string]any{"q": map[string]any{"type": "noul", "noul": n / 100}},
+			"usage":   map[string]any{"input_tokens": 1, "output_tokens": 1}})
+	})
+	client := srv.Client()
+	var pulled atomic.Int32 // incremented on the feeder goroutine
+	states := func(yield func(typesafe.State) bool) {
+		delays := append([]string{"60", "5", "40", "10", "80", "1"}, make([]string, 40)...)
+		for i := range delays[6:] {
+			delays[6+i] = "1"
+		}
+		for _, s := range delays {
+			pulled.Add(1)
+			if !yield(s) {
+				return
+			}
+		}
+	}
+	var order []int
+	for i, o := range client.EvaluateStream(context.Background(), states, typesafe.Questions{"q": typesafe.Noul("?")}, typesafe.ManyOptions{MaxConcurrency: 2}) {
+		if o.Err != nil {
+			t.Fatal(o.Err)
+		}
+		order = append(order, i)
+		if len(order) == 3 {
+			break // stop early: remaining states must not all be pulled
+		}
+	}
+	if len(order) != 3 || order[0] == 0 {
+		t.Fatalf("expected completion order with the slow first state not first, got %v", order)
+	}
+	if pulled.Load() >= 46 {
+		t.Fatal("iterator was drained despite early stop")
+	}
+	var bad []int
+	for i := range client.EvaluateStream(context.Background(), states, typesafe.Questions{}) {
+		bad = append(bad, i)
+	}
+	if len(bad) != 1 || bad[0] != -1 {
+		t.Fatalf("invalid question set should yield one index -1 outcome, got %v", bad)
+	}
+}
+
+func TestCallMetadataReachesHooks(t *testing.T) {
+	var got map[string]any
+	srv := typesafetest.NewServer(t)
+	srv.Stub(typesafetest.Answers{"q": typesafetest.NoulOf(0.5)})
+	client := srv.Client(typesafe.WithHooks(typesafe.Hooks{OnResponse: func(i typesafe.ResponseInfo) { got = i.Metadata }}))
+	_, err := client.Evaluate(context.Background(), "x", typesafe.Questions{"q": typesafe.Noul("?")}, typesafe.CallOptions{Metadata: map[string]any{"tenant": "acme"}})
+	if err != nil || got["tenant"] != "acme" {
+		t.Fatalf("metadata %v err %v", got, err)
+	}
+}
+
+func TestStateValidationRejectsAllScalars(t *testing.T) {
+	srv := typesafetest.NewServer(t)
+	client := srv.Client()
+	for _, bad := range []typesafe.State{int32(7), uint(1), float32(2), true, nil} {
+		_, err := client.Evaluate(context.Background(), bad, typesafe.Questions{"q": typesafe.Noul("?")})
+		if e, ok := err.(*typesafe.Error); !ok || e.Type != typesafe.ErrValidation {
+			t.Errorf("%T should be rejected, got %v", bad, err)
+		}
+	}
+	type payload struct{ Text string }
+	srv.Stub(typesafetest.Answers{"q": typesafetest.NoulOf(0.5)})
+	if _, err := client.Evaluate(context.Background(), payload{"hi"}, typesafe.Questions{"q": typesafe.Noul("?")}); err != nil {
+		t.Errorf("structs should be accepted: %v", err)
 	}
 }
 

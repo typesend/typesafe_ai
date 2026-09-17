@@ -36,6 +36,9 @@ type CallOptions struct {
 	// Header adds request headers. Authorization, Content-Type, Accept and
 	// User-Agent cannot be overridden.
 	Header http.Header
+	// Metadata is passed through to Hooks unchanged, for labelling metrics
+	// with a tenant, trace id, or feature name.
+	Metadata map[string]any
 }
 
 // Post sends a JSON POST through the raw layer and returns the decoded
@@ -70,14 +73,14 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, opts ...
 	}
 	policy := c.retry
 	if opt.Retry != nil {
-		policy = *opt.Retry
-		if err := policy.validate(); err != nil {
+		var err error
+		if policy, err = opt.Retry.normalized(); err != nil {
 			return nil, err
 		}
 	}
 
 	var payload []byte
-	info := RequestInfo{Method: method, Path: path}
+	info := RequestInfo{Method: method, Path: path, Metadata: opt.Metadata}
 	if body != nil {
 		var err error
 		payload, err = json.Marshal(body)
@@ -145,8 +148,8 @@ func (c *Client) attemptLoop(ctx context.Context, method, path string, payload [
 // sleepCtx waits for delay or until ctx ends, whichever comes first. The
 // policy's injected sleep (tests) is used verbatim when set.
 func sleepCtx(ctx context.Context, p RetryPolicy, delay time.Duration) error {
-	if p.sleep != nil {
-		p.sleep(delay)
+	if p.Sleep != nil {
+		p.Sleep(delay)
 		return nil
 	}
 	timer := time.NewTimer(delay)
@@ -169,9 +172,9 @@ func retryable(p RetryPolicy, httpResp *http.Response, err error) bool {
 	}
 	switch e.Type {
 	case ErrTimeout:
-		return p.RetryTimeoutErrors
+		return !p.NoRetryOnTimeout
 	case ErrConnection:
-		return p.RetryConnectionErrors
+		return !p.NoRetryOnConnectionError
 	}
 	return false
 }

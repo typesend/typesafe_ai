@@ -3,7 +3,9 @@ package typesafe
 import (
 	"context"
 	"fmt"
+	"iter"
 	"net/http"
+	"reflect"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -76,15 +78,19 @@ func (c *Client) EvaluatePrepared(ctx context.Context, state State, p *Prepared,
 }
 
 func validateState(state State) error {
-	switch state.(type) {
-	case nil:
+	if state == nil {
 		return validationError("state is required")
-	case string, map[string]any, []any, []string, map[string]string:
-		return nil
-	case bool, int, int64, float64:
-		return validationError("state must be a string, map, or list, got %T", state)
 	}
-	return nil // structs and slices are encoded by json.Marshal
+	switch reflect.TypeOf(state).Kind() {
+	case reflect.String, reflect.Map, reflect.Slice, reflect.Array, reflect.Struct:
+		return nil
+	case reflect.Pointer:
+		if reflect.ValueOf(state).IsNil() {
+			return validationError("state is required")
+		}
+		return validateState(reflect.ValueOf(state).Elem().Interface())
+	}
+	return validationError("state must be a string, map, or list, got %T", state)
 }
 
 // Outcome is one entry of EvaluateMany's results: exactly one of Result
@@ -112,8 +118,12 @@ type ManyOptions struct {
 // hides the others: errors, timeouts, and even panics in hooks or encoding
 // are isolated to their own Outcome. The question set is validated and
 // encoded once; an invalid set returns an error and no requests are sent.
-// Cancel ctx to stop early; in-flight calls end with ErrConnection or
-// ErrTimeout outcomes.
+// A fixed pool of MaxConcurrency workers processes the states, so memory is
+// bounded by the input slice, not by goroutines. Cancelling ctx stops
+// unstarted states immediately and ends in-flight calls, including retry
+// sleeps, with ErrConnection or ErrTimeout outcomes; the call returns once
+// every worker has unwound. For inputs too large to hold in memory, or to
+// consume results as they complete, use EvaluateStream.
 func (c *Client) EvaluateMany(ctx context.Context, states []State, qs Questions, opts ...ManyOptions) ([]Outcome, error) {
 	var opt ManyOptions
 	if len(opts) > 0 {
@@ -137,24 +147,116 @@ func (c *Client) EvaluateMany(ctx context.Context, states []State, qs Questions,
 		return nil, err
 	}
 	outcomes := make([]Outcome, len(states))
-	sem := make(chan struct{}, opt.MaxConcurrency)
-	var wg sync.WaitGroup
-	for i, state := range states {
-		wg.Add(1)
-		go func(i int, state State) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				outcomes[i] = Outcome{Err: &Error{Type: ErrConnection, Message: "cancelled before start: " + ctx.Err().Error(), Err: ctx.Err()}}
+	for i, o := range c.evaluateStream(ctx, sliceSeq(states), prepared, opt) {
+		outcomes[i] = o
+	}
+	return outcomes, nil
+}
+
+// EvaluateStream evaluates states from an iterator with bounded concurrency
+// and yields (index, Outcome) pairs as each state finishes, in completion
+// order. Use it when the input is too large to hold in memory or when you
+// want to consume results before the slowest state completes. At most
+// MaxConcurrency states are in flight or pulled from the iterator ahead of
+// consumption, so a lazy source (a database cursor, a file) is read on
+// demand. Stopping the range loop early cancels the remaining work.
+//
+// The question set is validated once; a validation error is yielded as the
+// single outcome for index -1.
+func (c *Client) EvaluateStream(ctx context.Context, states iter.Seq[State], qs Questions, opts ...ManyOptions) iter.Seq2[int, Outcome] {
+	var opt ManyOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	if opt.MaxConcurrency <= 0 {
+		opt.MaxConcurrency = 8
+	}
+	if opt.Timeout == 0 {
+		timeout, policy := c.timeout, c.retry
+		if opt.Call.Timeout > 0 {
+			timeout = opt.Call.Timeout
+		}
+		if opt.Call.Retry != nil {
+			policy = *opt.Call.Retry
+		}
+		opt.Timeout = WorstCaseDuration(timeout, policy)
+	}
+	prepared, err := Prepare(qs)
+	if err != nil {
+		return func(yield func(int, Outcome) bool) { yield(-1, Outcome{Err: err.(*Error)}) }
+	}
+	return c.evaluateStream(ctx, states, prepared, opt)
+}
+
+type indexed struct {
+	i       int
+	outcome Outcome
+}
+
+// evaluateStream is the engine behind EvaluateMany and EvaluateStream: a
+// fixed pool of MaxConcurrency workers pulling from the iterator, so
+// admission is bounded as well as concurrency.
+func (c *Client) evaluateStream(ctx context.Context, states iter.Seq[State], prepared *Prepared, opt ManyOptions) iter.Seq2[int, Outcome] {
+	return func(yield func(int, Outcome) bool) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		jobs := make(chan indexedState)
+		results := make(chan indexed)
+		var wg sync.WaitGroup
+		for w := 0; w < opt.MaxConcurrency; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for job := range jobs {
+					out := c.evaluateOne(ctx, job.state, prepared, opt)
+					select {
+					case results <- indexed{job.i, out}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+		go func() {
+			defer close(jobs)
+			i := 0
+			for state := range states {
+				select {
+				case jobs <- indexedState{i, state}:
+				case <-ctx.Done():
+					return
+				}
+				i++
+			}
+		}()
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+		for r := range results {
+			if !yield(r.i, r.outcome) {
+				cancel()
+				for range results { // drain so workers can exit
+				}
 				return
 			}
-			defer func() { <-sem }()
-			outcomes[i] = c.evaluateOne(ctx, state, prepared, opt)
-		}(i, state)
+		}
 	}
-	wg.Wait()
-	return outcomes, nil
+}
+
+type indexedState struct {
+	i     int
+	state State
+}
+
+func sliceSeq(states []State) iter.Seq[State] {
+	return func(yield func(State) bool) {
+		for _, s := range states {
+			if !yield(s) {
+				return
+			}
+		}
+	}
 }
 
 // evaluateOne runs a single state under its own timeout and converts a

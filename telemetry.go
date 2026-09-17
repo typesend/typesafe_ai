@@ -34,6 +34,8 @@ type RequestInfo struct {
 	Path          string
 	Model         string // "" for requests without a body
 	QuestionCount int    // 0 for requests without questions
+	// Metadata is CallOptions.Metadata, unchanged; nil when none was given.
+	Metadata map[string]any
 }
 
 // ResponseInfo describes how a call ended.

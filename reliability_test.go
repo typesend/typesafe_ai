@@ -17,7 +17,7 @@ func TestRetrySleepStopsOnContextCancel(t *testing.T) {
 	srv := typesafetest.NewServer(t)
 	srv.StubError(529, map[string]any{}, http.Header{"Retry-After": {"30"}})
 	p := typesafe.DefaultRetryPolicy()
-	p.Budget = 0 // would otherwise refuse the 30s wait
+	p.Budget = -1 // unlimited; the default budget would refuse the 30s wait
 	client := srv.Client(typesafe.WithRetry(p))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

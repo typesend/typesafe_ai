@@ -16,8 +16,8 @@ type fakeClock struct {
 }
 
 func (f *fakeClock) policy(p RetryPolicy) RetryPolicy {
-	p.now = func() time.Time { return f.now }
-	p.sleep = func(d time.Duration) { f.sleeps = append(f.sleeps, d); f.now = f.now.Add(d) }
+	p.Now = func() time.Time { return f.now }
+	p.Sleep = func(d time.Duration) { f.sleeps = append(f.sleeps, d); f.now = f.now.Add(d) }
 	return p
 }
 
@@ -59,7 +59,7 @@ func sequence(t *testing.T, statuses []int, headers ...http.Header) (*httptest.S
 func TestDefaultPolicyMirrorsOfficialSDK(t *testing.T) {
 	p := DefaultRetryPolicy()
 	if p.MaxRetries != 2 || p.BackoffInitial != 500*time.Millisecond || p.BackoffMax != 5*time.Second ||
-		p.BackoffJitter != 0.25 || p.Budget != 30*time.Second || !p.RespectRetryAfter {
+		p.BackoffJitter != 0.25 || p.Budget != 30*time.Second || p.IgnoreRetryAfter {
 		t.Fatalf("unexpected defaults: %+v", p)
 	}
 	for _, s := range []int{408, 429, 500, 529, 599} {
@@ -90,6 +90,30 @@ func TestBackoffDoublesWithJitterBounds(t *testing.T) {
 	p.BackoffInitial = 0
 	if p.Backoff(3) != 0 {
 		t.Fatal("zero initial disables backoff")
+	}
+}
+
+func TestZeroValuePolicyFieldsMeanDefaults(t *testing.T) {
+	p, err := RetryPolicy{MaxRetries: 5}.normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.MaxRetries != 5 || len(p.Statuses) == 0 || p.Budget != 30*time.Second || p.BackoffInitial == 0 || p.NoRetryOnTimeout {
+		t.Fatalf("partial literal lost defaults: %+v", p)
+	}
+	if !p.retryableStatus(529) {
+		t.Fatal("default statuses missing")
+	}
+	off, _ := NoRetry().normalized()
+	if off.MaxRetries != 0 {
+		t.Fatalf("NoRetry should normalise to zero retries, got %d", off.MaxRetries)
+	}
+	unlimited, _ := RetryPolicy{Budget: -1}.normalized()
+	if unlimited.Budget != 0 {
+		t.Fatalf("negative budget should mean unlimited, got %v", unlimited.Budget)
+	}
+	if _, err := (RetryPolicy{BackoffJitter: 2}).normalized(); err == nil {
+		t.Fatal("jitter > 1 must be rejected")
 	}
 }
 
@@ -229,7 +253,7 @@ func TestBudgetDisabledWithZero(t *testing.T) {
 	srv, _ := sequence(t, []int{529, 200}, http.Header{"Retry-After": {"100"}})
 	clock := &fakeClock{}
 	p := clock.policy(DefaultRetryPolicy())
-	p.Budget = 0
+	p.Budget = -1
 	c := newTestClient(t, srv, p)
 	if _, err := c.Get(context.Background(), "/x"); err != nil {
 		t.Fatal(err)
@@ -256,7 +280,7 @@ func TestRetriesConnectionAndTimeoutErrors(t *testing.T) {
 		t.Fatalf("timeout should be retried: %v", err)
 	}
 
-	p.RetryTimeoutErrors = false
+	p.NoRetryOnTimeout = true
 	atomic.StoreInt32(&calls, 0)
 	c2, _ := New(WithAPIKey("k"), WithBaseURL(srv.URL), WithRetry(p), WithTimeout(50*time.Millisecond))
 	_, err := c2.Get(context.Background(), "/x")

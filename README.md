@@ -31,7 +31,7 @@ This module lives on the `go-sdk` branch of the repository; the Elixir client li
 go get github.com/typesend/typesafe_ai@go-sdk
 ```
 
-Requires Go 1.22 or later.
+Requires Go 1.23 or later.
 
 ## Quick start
 
