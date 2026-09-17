@@ -203,6 +203,14 @@ moving that call to the raw layer: there is no extra-body escape inside `Evaluat
 - The only real ceiling is the shared token budget, roughly 32,000 tokens per request. A
   Choice needs 2 to 255 options and a Score 2 to 10 levels, both enforced locally.
 
+## Reliability and scaling
+
+Every state in `EvaluateMany` runs under its own timeout with panics recovered, retry
+sleeps stop on context cancellation, the default transport keeps connections alive for
+fan-out, telemetry hooks cannot fail a request, and response bodies are bounded.
+[docs/beam-vs-go.md](docs/beam-vs-go.md) explains where the Go client matches the
+Elixir client's BEAM-backed guarantees and where it cannot.
+
 ## Patterns
 
 [docs/patterns.md](docs/patterns.md) translates TypeSafe's three recommended patterns

@@ -2,7 +2,9 @@ package typesafe
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -96,15 +98,21 @@ type ManyOptions struct {
 	// MaxConcurrency caps in-flight requests. Default 8, a guess: TypeSafe
 	// has not published rate limits.
 	MaxConcurrency int
+	// Timeout bounds one state's whole call, retries included. Default:
+	// WorstCaseDuration of the effective policy (budget plus one attempt),
+	// so a legitimate retry is never cut short.
+	Timeout time.Duration
 	// Call options applied to every request.
 	Call CallOptions
 }
 
 // EvaluateMany evaluates each state against one question set concurrently
 // and returns one Outcome per state, in input order. A failed state never
-// hides the others. The question set is validated and encoded once; an
-// invalid set returns an error and no requests are sent. Cancel ctx to stop
-// early; in-flight calls end with ErrConnection or ErrTimeout outcomes.
+// hides the others: errors, timeouts, and even panics in hooks or encoding
+// are isolated to their own Outcome. The question set is validated and
+// encoded once; an invalid set returns an error and no requests are sent.
+// Cancel ctx to stop early; in-flight calls end with ErrConnection or
+// ErrTimeout outcomes.
 func (c *Client) EvaluateMany(ctx context.Context, states []State, qs Questions, opts ...ManyOptions) ([]Outcome, error) {
 	var opt ManyOptions
 	if len(opts) > 0 {
@@ -112,6 +120,16 @@ func (c *Client) EvaluateMany(ctx context.Context, states []State, qs Questions,
 	}
 	if opt.MaxConcurrency <= 0 {
 		opt.MaxConcurrency = 8
+	}
+	if opt.Timeout == 0 {
+		timeout, policy := c.timeout, c.retry
+		if opt.Call.Timeout > 0 {
+			timeout = opt.Call.Timeout
+		}
+		if opt.Call.Retry != nil {
+			policy = *opt.Call.Retry
+		}
+		opt.Timeout = WorstCaseDuration(timeout, policy)
 	}
 	prepared, err := Prepare(qs)
 	if err != nil {
@@ -131,16 +149,37 @@ func (c *Client) EvaluateMany(ctx context.Context, states []State, qs Questions,
 				return
 			}
 			defer func() { <-sem }()
-			res, err := c.EvaluatePrepared(ctx, state, prepared, opt.Call)
-			if err != nil {
-				outcomes[i] = Outcome{Err: err.(*Error)}
-				return
-			}
-			outcomes[i] = Outcome{Result: res}
+			outcomes[i] = c.evaluateOne(ctx, state, prepared, opt)
 		}(i, state)
 	}
 	wg.Wait()
 	return outcomes, nil
+}
+
+// evaluateOne runs a single state under its own timeout and converts a
+// panic into an Outcome error, so one bad state cannot take down the batch.
+func (c *Client) evaluateOne(ctx context.Context, state State, prepared *Prepared, opt ManyOptions) (out Outcome) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = Outcome{Err: &Error{Type: ErrUnexpected,
+				Message: fmt.Sprintf("panic evaluating state: %v\n%s", r, debug.Stack())}}
+		}
+	}()
+	sctx, cancel := context.WithTimeout(ctx, opt.Timeout)
+	defer cancel()
+	res, err := c.EvaluatePrepared(sctx, state, prepared, opt.Call)
+	if err != nil {
+		e, _ := err.(*Error)
+		if e == nil {
+			e = &Error{Type: ErrUnexpected, Message: err.Error(), Err: err}
+		}
+		if sctx.Err() != nil && ctx.Err() == nil {
+			e.Type = ErrTimeout
+			e.Message = "state exceeded the per-state timeout of " + opt.Timeout.String()
+		}
+		return Outcome{Err: e}
+	}
+	return Outcome{Result: res}
 }
 
 // FirstError returns the first error outcome in input order, or nil.

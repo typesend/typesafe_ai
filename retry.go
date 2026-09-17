@@ -171,13 +171,6 @@ func (p RetryPolicy) delay(resp *http.Response, attempt int) time.Duration {
 	return p.Backoff(attempt)
 }
 
-func (p RetryPolicy) sleepFn() func(time.Duration) {
-	if p.sleep != nil {
-		return p.sleep
-	}
-	return time.Sleep
-}
-
 func (p RetryPolicy) nowFn() func() time.Time {
 	if p.now != nil {
 		return p.now

@@ -7,7 +7,10 @@ import "time"
 // connection, unexpected) arrive through the same hook with Err set; there
 // is no separate exception path.
 //
-// Hooks run synchronously on the calling goroutine; keep them fast.
+// Hooks run synchronously on the calling goroutine; keep them fast. A hook
+// that panics is recovered and ignored, so telemetry can never fail a
+// request (the same guarantee Erlang's :telemetry gives by detaching a
+// crashing handler).
 //
 //	hooks := typesafe.Hooks{OnResponse: func(i typesafe.ResponseInfo) {
 //		if i.Err != nil {
@@ -47,12 +50,14 @@ type ResponseInfo struct {
 
 func (h Hooks) request(info RequestInfo) {
 	if h.OnRequest != nil {
+		defer func() { _ = recover() }()
 		h.OnRequest(info)
 	}
 }
 
 func (h Hooks) response(info ResponseInfo) {
 	if h.OnResponse != nil {
+		defer func() { _ = recover() }()
 		h.OnResponse(info)
 	}
 }

@@ -1,6 +1,7 @@
 package typesafe
 
 import (
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -33,7 +34,11 @@ type Client struct {
 	retry      RetryPolicy
 	httpClient *http.Client
 	hooks      Hooks
+	maxBody    int64
 }
+
+// DefaultMaxResponseBytes bounds how much of a response body is read.
+const DefaultMaxResponseBytes = 16 << 20
 
 // Option configures a Client.
 type Option func(*Client)
@@ -64,6 +69,31 @@ func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.httpClie
 
 // WithHooks sets telemetry hooks called around every request.
 func WithHooks(h Hooks) Option { return func(c *Client) { c.hooks = h } }
+
+// WithMaxResponseBytes caps the bytes read from any response body, so a
+// misbehaving server cannot exhaust memory. Default DefaultMaxResponseBytes.
+func WithMaxResponseBytes(n int64) Option { return func(c *Client) { c.maxBody = n } }
+
+// DefaultTransport returns the http.Transport New uses when no http.Client
+// is supplied. It differs from http.DefaultTransport in keeping enough idle
+// connections per host for concurrent fan-out (EvaluateMany) instead of the
+// standard library's two, which would otherwise open and close a connection
+// for most requests under load.
+func DefaultTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          256,
+		MaxIdleConnsPerHost:   64,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+}
 
 // New builds a Client. Settings resolve from options, then TYPESAFE_*
 // environment variables, then defaults. It returns a *Error of type
@@ -102,7 +132,13 @@ func New(opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	if c.httpClient == nil {
-		c.httpClient = &http.Client{}
+		c.httpClient = &http.Client{Transport: DefaultTransport()}
+	}
+	if c.maxBody == 0 {
+		c.maxBody = DefaultMaxResponseBytes
+	}
+	if c.maxBody < 0 {
+		return nil, validationError("max response bytes must be positive, got %d", c.maxBody)
 	}
 	return c, nil
 }

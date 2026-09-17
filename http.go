@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -134,8 +135,27 @@ func (c *Client) attemptLoop(ctx context.Context, method, path string, payload [
 				return nil, err
 			}
 		}
-		policy.sleepFn()(delay)
+		if err := sleepCtx(ctx, policy, delay); err != nil {
+			return nil, err // cancelled while waiting to retry
+		}
 		retries = attempt
+	}
+}
+
+// sleepCtx waits for delay or until ctx ends, whichever comes first. The
+// policy's injected sleep (tests) is used verbatim when set.
+func sleepCtx(ctx context.Context, p RetryPolicy, delay time.Duration) error {
+	if p.sleep != nil {
+		p.sleep(delay)
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return &Error{Type: ErrConnection, Message: "cancelled while waiting to retry: " + ctx.Err().Error(), Err: ctx.Err()}
 	}
 }
 
@@ -191,9 +211,14 @@ func (c *Client) attempt(ctx context.Context, method, path string, payload []byt
 		return nil, nil, transportError(err, ctx)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
-	raw, err := io.ReadAll(httpResp.Body)
+	raw, err := io.ReadAll(io.LimitReader(httpResp.Body, c.maxBody+1))
 	if err != nil {
 		return nil, nil, transportError(err, ctx)
+	}
+	if int64(len(raw)) > c.maxBody {
+		return nil, nil, &Error{Type: ErrUnexpected, Status: httpResp.StatusCode,
+			Message:   fmt.Sprintf("response body exceeds %d bytes", c.maxBody),
+			RequestID: httpResp.Header.Get("x-typesafe-request-id")}
 	}
 
 	requestID := httpResp.Header.Get("x-typesafe-request-id")
