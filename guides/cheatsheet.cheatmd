@@ -1,0 +1,250 @@
+# TypeSafe cheatsheet
+
+## Client
+{: .col-2}
+
+### Build once, pass around
+
+```elixir
+client = TypeSafe.new(api_key: "sk-...")
+
+# from TYPESAFE_API_KEY / TYPESAFE_BASE_URL /
+# TYPESAFE_DEFAULT_MODEL or config :typesafe_api
+client = TypeSafe.new()
+
+client =
+  TypeSafe.new(
+    api_key: "sk-...",
+    model: "jev-latest",
+    timeout: 10_000,
+    retry: [max_retries: 2, budget: 30_000],
+    req_options: [connect_options: [proxy: ...]]
+  )
+```
+
+### Environment variables
+
+```
+TYPESAFE_API_KEY=sk-...
+TYPESAFE_BASE_URL=https://api.typesafe.ai
+TYPESAFE_DEFAULT_MODEL=jev-latest
+TYPESAFE_LOG_LEVEL=info   # read by TypeSafe.Telemetry.attach_logger/1
+```
+
+### Per-call options
+
+```elixir
+TypeSafe.evaluate(client, state, questions,
+  model: "jev-2",
+  timeout: 5_000,
+  retry: [max_retries: 0],
+  req_options: [headers: [x_trace: "abc"]],
+  telemetry: %{tenant: "acme"}
+)
+```
+
+## Questions
+{: .col-2}
+
+### Noul (yes/no)
+
+```elixir
+TypeSafe.noul("Does this convey urgency?")
+
+TypeSafe.noul("Does this convey urgency?",
+  true: "Explicitly time-sensitive",
+  false: "No urgency expressed"
+)
+```
+
+### Choice (one of a set, 2 to 255 options)
+
+```elixir
+TypeSafe.choice("Which team should handle this?",
+  billing: "Payments, invoicing, refunds",
+  technical: "Bugs, outages, integrations",
+  sales: nil
+)
+
+# string keys come back as strings
+TypeSafe.choice("Which?", [{"a", nil}, {"b", nil}])
+```
+
+### Score (ordered scale, 2 to 10 levels)
+
+```elixir
+TypeSafe.score("How frustrated is the customer?",
+  ["Calm", "Frustrated", "Very angry"])
+
+# {label, description} sends a structured level
+# and gives you the label back in the answer
+TypeSafe.score("Severity?", [
+  {"Low", "Cosmetic; no functional impact"},
+  {"High", "Blocking; no workaround"}
+])
+```
+
+### Structured descriptions
+
+Anywhere a string goes, a map or list works too:
+
+```elixir
+TypeSafe.choice(%{question: "Which team?", focus: "Primary request only"},
+  billing: %{what: "Charges", not_for: "Delivery", examples: ["Charged twice"]}
+)
+```
+
+### Validate eagerly
+
+```elixir
+@urgent TypeSafe.Question.validate!(
+          TypeSafe.noul("Urgent?", true: "Explicitly time-sensitive")
+        )
+# raises ArgumentError at compile time if malformed; returns the question otherwise
+```
+
+## Evaluate
+{: .col-2}
+
+### One state
+
+```elixir
+{:ok, result} = TypeSafe.evaluate(client, state, questions)
+result = TypeSafe.evaluate!(client, state, questions)
+
+result.model             #=> "jev-1.13.0"
+result.usage.input_tokens
+result.answers.dept      #=> %TypeSafe.Answer.Choice{}
+result.raw               #=> decoded JSON body
+result.request_id        #=> the x-typesafe-request-id header, or nil
+```
+
+### Many states
+
+```elixir
+TypeSafe.evaluate_many(client, states, questions,
+  max_concurrency: 8,   # a guess; limits unpublished
+  timeout: 40_000,      # per-state task, all retries
+  attempt_timeout: 5_000,
+  ordered: true,
+  on_error: :collect    # or :raise
+)
+#=> [{:ok, %Result{}} | {:error, %Error{}}]
+```
+
+### Models
+
+```elixir
+{:ok, [%TypeSafe.Model{name: "jev-1.13.0"} | _]} = TypeSafe.models(client)
+```
+
+## Answers
+{: .col-2}
+
+### Shapes
+
+```elixir
+%TypeSafe.Answer.Noul{id: :urgent, noul: 0.92}
+
+%TypeSafe.Answer.Choice{id: :dept, choice: :technical,
+  probabilities: %{billing: 0.08, technical: 0.85, sales: 0.07},
+  confidence: 0.82}
+
+%TypeSafe.Answer.Score{id: :anger, score: 1.6,
+  level: 2, label: "Very angry", description: "Very angry",
+  levels: [{"Calm", 0.05}, {"Frustrated", 0.3}, {"Very angry", 0.65}],
+  probabilities: %{0 => 0.05, 1 => 0.3, 2 => 0.65},
+  legend: %{0 => "Calm", ...}, confidence: 0.78}
+```
+
+### Helpers
+
+```elixir
+TypeSafe.Answer.yes?(answers.urgent)          # noul >= 0.5 (Noul only)
+TypeSafe.Answer.yes?(answers.urgent, 0.7)
+TypeSafe.Answer.gate(answers.dept, act: 0.8, review: 0.5)
+#=> :act | :review | :escalate
+TypeSafe.Answer.confidence(answer)            # what gate/2 uses
+# Noul has no wire confidence; this library uses max(noul, 1 - noul)
+TypeSafe.Answer.Score.normalized(answers.anger) # score / top level
+```
+
+## Errors
+{: .col-2}
+
+### Match on type
+
+```elixir
+case TypeSafe.evaluate(client, state, questions) do
+  {:ok, result} -> ...
+  {:error, %TypeSafe.Error{type: :rate_limited, retry_after_ms: ms}} -> ...
+  {:error, %TypeSafe.Error{type: :validation, message: msg}} -> ...
+  {:error, %TypeSafe.Error{type: type}} when type in [:timeout, :connection] -> ...
+end
+```
+
+### Types
+
+| status / type   | when                                   |
+| --------------- | -------------------------------------- |
+| 401             | `:auth`                                |
+| 400             | caller error, `:validation`            |
+| 422             | `:validation`, or caught locally (`status: nil`) |
+| 429             | `:rate_limited` after retries          |
+| 529 / 503       | `:overloaded` after retries            |
+| 408             | retried, then `:unexpected`            |
+| n/a             | `:timeout` (no response in time), `:connection` (could not reach the server) |
+| anything else   | `:unexpected`                          |
+
+## Testing
+{: .col-2}
+
+### Stub by question id
+
+```elixir
+setup :typesafe_stubs
+def typesafe_stubs(ctx), do: TypeSafe.Test.typesafe_stubs(ctx)
+
+client =
+  TypeSafe.Test.client()
+  |> TypeSafe.Test.stub(
+    urgent: {:noul, 0.3},
+    dept: {:choice, :billing, 0.9},
+    anger: {:score, 1, 0.8}
+  )
+```
+
+### Errors and models
+
+```elixir
+TypeSafe.Test.stub_error(client, 429, %{"error" => "slow"},
+  [{"retry-after", "1"}])
+
+TypeSafe.Test.stub_models(client,
+  [%{name: "jev-1", release_date: ~D[2026-01-01]}])
+```
+
+## Raw layer and telemetry
+{: .col-2}
+
+### Maps in, maps out
+
+```elixir
+TypeSafe.HTTP.post(client, "/v1/systemone", %{
+  "state" => "...", "model" => "jev-latest",
+  "questions" => %{"q" => %{"type" => "noul", "instructions" => "?"}}
+})
+TypeSafe.HTTP.get(client, "/v1/models")
+```
+
+### Telemetry
+
+```elixir
+# [:typesafe, :request, :start | :stop | :exception]
+# start metadata:  model, question_count
+# stop metadata:   + status, retry_count, input_tokens, output_tokens, error
+# (error is a TypeSafe.Error on failure, nil on success; API failures are
+#  :stop events, not :exception — :exception only fires when code raises)
+TypeSafe.Telemetry.attach_logger(level: :info)
+TypeSafe.Telemetry.detach_logger()
+```
