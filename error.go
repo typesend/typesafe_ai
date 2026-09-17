@@ -35,7 +35,9 @@ type Error struct {
 	Status  int    // HTTP status, or 0 when no response was involved
 	Message string // one-line summary; 422 details are joined as "loc.path: msg; ..."
 	// Body is the decoded JSON error body (map[string]any), the raw string
-	// when the body was not JSON, or nil.
+	// when the body was not JSON, or nil. For an ErrUnexpected raised while
+	// decoding a 2xx response, Body is the offending part of that response
+	// and Status is the 2xx status the server sent.
 	Body any
 	// RequestID is the x-typesafe-request-id response header. Quote it when
 	// contacting TypeSafe support.

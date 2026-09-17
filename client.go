@@ -65,6 +65,15 @@ func WithRetry(p RetryPolicy) Option { return func(c *Client) { c.retry = p } }
 // WithHTTPClient sets the underlying http.Client, for proxies, custom
 // transports, or connection pool tuning. Its Timeout field is ignored; use
 // WithTimeout.
+//
+// A client whose Transport is nil uses http.DefaultTransport, which keeps
+// only two idle connections per host and will open a fresh TLS connection
+// for most requests under EvaluateMany. Start from DefaultTransport when
+// you only need to add a proxy or a RoundTripper:
+//
+//	tr := typesafe.DefaultTransport()
+//	tr.Proxy = http.ProxyURL(proxyURL)
+//	client, err := typesafe.New(typesafe.WithHTTPClient(&http.Client{Transport: tr}))
 func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.httpClient = h } }
 
 // WithHooks sets telemetry hooks called around every request.

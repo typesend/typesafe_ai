@@ -31,7 +31,7 @@
 //	}
 //
 //	dept := res.Choice("dept")     // *ChoiceAnswer or nil
-//	fmt.Println(dept.Choice, dept.Confidence)
+//	fmt.Println(dept.Choice, dept.Confidence())
 //
 // Two layers: the typed API above, and a raw layer (Client.Post, Client.Get,
 // Client.Do) that speaks map[string]any for parts of the API this package

@@ -253,7 +253,7 @@ func TestErrorMapping(t *testing.T) {
 	srv.Handle(func(w http.ResponseWriter, r *http.Request) {
 		typesafetest.JSON(w, 200, map[string]any{"model": "m", "answers": map[string]any{}, "usage": map[string]any{}})
 	})
-	if e := call(); e.Type != typesafe.ErrUnexpected || !strings.Contains(e.Message, "missing answer") {
+	if e := call(); e.Type != typesafe.ErrUnexpected || !strings.Contains(e.Message, "missing answer") || e.Status != 200 {
 		t.Fatalf("missing answer: %+v", e)
 	}
 }

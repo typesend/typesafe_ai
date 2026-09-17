@@ -66,6 +66,7 @@ func (c *Client) EvaluatePrepared(ctx context.Context, state State, p *Prepared,
 	res, err := decodeResult(resp.Body, p.questions)
 	if err != nil {
 		if e, ok := err.(*Error); ok {
+			e.Status = resp.Status
 			e.RequestID = resp.RequestID
 		}
 		return nil, err
