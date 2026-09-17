@@ -14,7 +14,7 @@ Dock it will not see your zshrc, so it also falls back to a Livebook secret name
 
 ```elixir
 api_key = System.get_env("TYPESAFE_API_KEY") || System.fetch_env!("LB_TYPESAFE_API_KEY")
-client = TypeSafe.new(api_key: api_key)
+client = TypeSafeAPI.new(api_key: api_key)
 ```
 
 ## The question set
@@ -25,14 +25,14 @@ Three question types, one state. Keys are atoms and round-trip back as atoms.
 state = "Help! My payouts have been failing for 3 days."
 
 questions = [
-  urgent: TypeSafe.noul("Does this convey urgency?"),
+  urgent: TypeSafeAPI.noul("Does this convey urgency?"),
   dept:
-    TypeSafe.choice("Which team should handle this?",
+    TypeSafeAPI.choice("Which team should handle this?",
       billing: "Payments, invoicing, refunds",
       technical: "Bugs, outages, integrations",
       sales: nil
     ),
-  anger: TypeSafe.score("How frustrated is the customer?", ["Calm", "Frustrated", "Very angry"])
+  anger: TypeSafeAPI.score("How frustrated is the customer?", ["Calm", "Frustrated", "Very angry"])
 ]
 ```
 
@@ -42,11 +42,11 @@ questions = [
 API sees them in the order you wrote them.
 
 ```elixir
-{:ok, prepared} = TypeSafe.SystemOne.prepare(questions)
+{:ok, prepared} = TypeSafeAPI.SystemOne.prepare(questions)
 body = %{"state" => state, "model" => client.model, "questions" => prepared.encoded}
 
-req = TypeSafe.HTTP.build(client, :post, TypeSafe.SystemOne.path(), body)
-IO.puts("POST #{client.base_url}#{TypeSafe.SystemOne.path()}")
+req = TypeSafeAPI.HTTP.build(client, :post, TypeSafeAPI.SystemOne.path(), body)
+IO.puts("POST #{client.base_url}#{TypeSafeAPI.SystemOne.path()}")
 for {k, v} <- req.headers, k != "authorization", do: IO.puts("#{k}: #{Enum.join(List.wrap(v), ", ")}")
 IO.puts("authorization: Bearer sk-***\n")
 IO.puts(JSON.encode!(body))
@@ -57,7 +57,7 @@ IO.puts(JSON.encode!(body))
 The raw HTTP layer returns maps, plus status, headers, request id, and retry count.
 
 ```elixir
-{:ok, resp} = TypeSafe.HTTP.request(client, :post, TypeSafe.SystemOne.path(), body)
+{:ok, resp} = TypeSafeAPI.HTTP.request(client, :post, TypeSafeAPI.SystemOne.path(), body)
 resp
 ```
 
@@ -66,7 +66,7 @@ resp
 `evaluate/3` does all of the above and decodes into typed answer structs.
 
 ```elixir
-{:ok, result} = TypeSafe.evaluate(client, state, questions)
+{:ok, result} = TypeSafeAPI.evaluate(client, state, questions)
 result.answers
 ```
 
@@ -77,7 +77,7 @@ result.usage
 ## Routing on the answers
 
 ```elixir
-alias TypeSafe.Answer
+alias TypeSafeAPI.Answer
 
 cond do
   Answer.yes?(result.answers.urgent) and result.answers.anger.level >= 1 ->
@@ -91,6 +91,6 @@ end
 ## Models
 
 ```elixir
-{:ok, models} = TypeSafe.models(client)
+{:ok, models} = TypeSafeAPI.models(client)
 models
 ```

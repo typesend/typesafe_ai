@@ -14,7 +14,7 @@ Resume screening for engineering roles, four dimensions, five levels each:
 defmodule MyApp.Screening do
   @questions [
     python_depth:
-      TypeSafe.score(
+      TypeSafeAPI.score(
         "How much depth of python experience does this candidate have, based on the supplied resume?",
         [
           "No Python experience mentioned",
@@ -25,7 +25,7 @@ defmodule MyApp.Screening do
         ]
       ),
     team_leadership:
-      TypeSafe.score(
+      TypeSafeAPI.score(
         "How much experience does this candidate have managing or leading engineering teams?",
         [
           "No management experience mentioned",
@@ -36,7 +36,7 @@ defmodule MyApp.Screening do
         ]
       ),
     system_design:
-      TypeSafe.score(
+      TypeSafeAPI.score(
         "How much experience does this candidate have designing large-scale or distributed systems?",
         [
           "No architecture work mentioned",
@@ -47,7 +47,7 @@ defmodule MyApp.Screening do
         ]
       ),
     generalist:
-      TypeSafe.score(
+      TypeSafeAPI.score(
         "How much evidence is there that this candidate picks up unfamiliar tools, roles, or domains outside their core specialty?",
         [
           "Only one domain or role mentioned",
@@ -65,14 +65,14 @@ end
 
 ## Combining with weights
 
-`TypeSafe.Answer.Score.normalized/1` divides the score by the top level index, so every
+`TypeSafeAPI.Answer.Score.normalized/1` divides the score by the top level index, so every
 dimension lands on 0 to 1 regardless of how many levels it has.
 
 ```elixir
 defmodule MyApp.Screening do
   # ... @questions from above ...
 
-  alias TypeSafe.Answer.Score
+  alias TypeSafeAPI.Answer.Score
 
   @ic_weights %{python_depth: 0.40, team_leadership: 0.10, system_design: 0.40, generalist: 0.10}
   @em_weights %{python_depth: 0.15, team_leadership: 0.40, system_design: 0.20, generalist: 0.25}
@@ -81,7 +81,7 @@ defmodule MyApp.Screening do
     weights = if role == :engineering_manager, do: @em_weights, else: @ic_weights
 
     client
-    |> TypeSafe.evaluate_many(Enum.map(resumes, & &1.text), @questions, max_concurrency: 8)
+    |> TypeSafeAPI.evaluate_many(Enum.map(resumes, & &1.text), @questions, max_concurrency: 8)
     |> Enum.zip(resumes)
     |> Enum.flat_map(fn
       {{:ok, result}, resume} -> [{resume, composite(result.answers, weights)}]

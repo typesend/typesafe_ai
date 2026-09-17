@@ -17,7 +17,7 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-typesafe_ai-*.tar
+typesafe_api-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
@@ -27,3 +27,11 @@ typesafe_ai-*.tar
 
 # Generated docs
 /doc/
+
+# Local tk tickets
+/.tickets/
+
+# Agent worktrees
+/.claude/worktrees/
+/.claude/review/
+/.claude/drafts/

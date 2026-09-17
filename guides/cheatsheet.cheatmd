@@ -6,17 +6,18 @@
 ### Build once, pass around
 
 ```elixir
-client = TypeSafe.new(api_key: "sk-...")
+client = TypeSafeAPI.new(api_key: "sk-...")
 
 # from TYPESAFE_API_KEY / TYPESAFE_BASE_URL /
 # TYPESAFE_DEFAULT_MODEL or config :typesafe_api
-client = TypeSafe.new()
+client = TypeSafeAPI.new()
 
 client =
-  TypeSafe.new(
+  TypeSafeAPI.new(
     api_key: "sk-...",
     model: "jev-latest",
     timeout: 10_000,
+    connect_timeout: 5_000,
     retry: [max_retries: 2, budget: 30_000],
     req_options: [connect_options: [proxy: ...]]
   )
@@ -28,13 +29,13 @@ client =
 TYPESAFE_API_KEY=sk-...
 TYPESAFE_BASE_URL=https://api.typesafe.ai
 TYPESAFE_DEFAULT_MODEL=jev-latest
-TYPESAFE_LOG_LEVEL=info   # read by TypeSafe.Telemetry.attach_logger/1
+TYPESAFE_LOG_LEVEL=info   # read by TypeSafeAPI.Telemetry.attach_logger/1
 ```
 
 ### Per-call options
 
 ```elixir
-TypeSafe.evaluate(client, state, questions,
+TypeSafeAPI.evaluate(client, state, questions,
   model: "jev-2",
   timeout: 5_000,
   retry: [max_retries: 0],
@@ -48,37 +49,44 @@ TypeSafe.evaluate(client, state, questions,
 
 ### Noul (yes/no)
 
-```elixir
-TypeSafe.noul("Does this convey urgency?")
+Instructions may be a question or a statement to evaluate.
 
-TypeSafe.noul("Does this convey urgency?",
+```elixir
+TypeSafeAPI.noul("Does this convey urgency?")
+
+TypeSafeAPI.noul("This message contains unsolicited advertising.")
+
+TypeSafeAPI.noul("Does this convey urgency?",
   true: "Explicitly time-sensitive",
   false: "No urgency expressed"
 )
 ```
 
-### Choice (one of a set, 2 to 255 options)
+### Choice (one of a set, 1 to 255 options)
 
 ```elixir
-TypeSafe.choice("Which team should handle this?",
+TypeSafeAPI.choice("Which team should handle this?",
   billing: "Payments, invoicing, refunds",
   technical: "Bugs, outages, integrations",
   sales: nil
 )
 
 # string keys come back as strings
-TypeSafe.choice("Which?", [{"a", nil}, {"b", nil}])
+TypeSafeAPI.choice("Which?", [{"a", nil}, {"b", nil}])
+
+# a bare list of names means the same as pairing each with nil
+TypeSafeAPI.choice("Which team?", [:billing, :sales])
 ```
 
 ### Score (ordered scale, 2 to 10 levels)
 
 ```elixir
-TypeSafe.score("How frustrated is the customer?",
+TypeSafeAPI.score("How frustrated is the customer?",
   ["Calm", "Frustrated", "Very angry"])
 
 # {label, description} sends a structured level
 # and gives you the label back in the answer
-TypeSafe.score("Severity?", [
+TypeSafeAPI.score("Severity?", [
   {"Low", "Cosmetic; no functional impact"},
   {"High", "Blocking; no workaround"}
 ])
@@ -89,16 +97,27 @@ TypeSafe.score("Severity?", [
 Anywhere a string goes, a map or list works too:
 
 ```elixir
-TypeSafe.choice(%{question: "Which team?", focus: "Primary request only"},
+TypeSafeAPI.choice(%{question: "Which team?", focus: "Primary request only"},
   billing: %{what: "Charges", not_for: "Delivery", examples: ["Charged twice"]}
 )
+```
+
+### Instructions are optional
+
+Every type takes `nil` instructions; the key is then left out of the request
+rather than sent as `null`.
+
+```elixir
+TypeSafeAPI.noul()
+TypeSafeAPI.choice(nil, approve: "Ship it", reject: "Send it back")
+TypeSafeAPI.score(nil, ["Calm", "Frustrated", "Very angry"])
 ```
 
 ### Validate eagerly
 
 ```elixir
-@urgent TypeSafe.Question.validate!(
-          TypeSafe.noul("Urgent?", true: "Explicitly time-sensitive")
+@urgent TypeSafeAPI.Question.validate!(
+          TypeSafeAPI.noul("Urgent?", true: "Explicitly time-sensitive")
         )
 # raises ArgumentError at compile time if malformed; returns the question otherwise
 ```
@@ -109,12 +128,14 @@ TypeSafe.choice(%{question: "Which team?", focus: "Primary request only"},
 ### One state
 
 ```elixir
-{:ok, result} = TypeSafe.evaluate(client, state, questions)
-result = TypeSafe.evaluate!(client, state, questions)
+{:ok, result} = TypeSafeAPI.evaluate(client, state, questions)
+result = TypeSafeAPI.evaluate!(client, state, questions)
 
 result.model             #=> "jev-1.13.0"
-result.usage.input_tokens
-result.answers.dept      #=> %TypeSafe.Answer.Choice{}
+result.usage.input_tokens                # nil if the API sent none
+TypeSafeAPI.Usage.total_tokens(result.usage)   # nil counts as 0
+TypeSafeAPI.Usage.add(total, result.usage)     # fold a batch
+result.answers.dept      #=> %TypeSafeAPI.Answer.Choice{}
 result.raw               #=> decoded JSON body
 result.request_id        #=> the x-typesafe-request-id header, or nil
 ```
@@ -122,10 +143,10 @@ result.request_id        #=> the x-typesafe-request-id header, or nil
 ### Many states
 
 ```elixir
-TypeSafe.evaluate_many(client, states, questions,
+TypeSafeAPI.evaluate_many(client, states, questions,
   max_concurrency: 8,   # a guess; limits unpublished
-  timeout: 40_000,      # per-state task, all retries
-  attempt_timeout: 5_000,
+  task_timeout: 40_000, # per-state, all retries
+  timeout: 5_000,       # one HTTP attempt
   ordered: true,
   on_error: :collect    # or :raise
 )
@@ -135,8 +156,15 @@ TypeSafe.evaluate_many(client, states, questions,
 ### Models
 
 ```elixir
-{:ok, [%TypeSafe.Model{name: "jev-1.13.0"} | _]} = TypeSafe.models(client)
+{:ok, [%TypeSafeAPI.Model{name: "jev-1.13.0"} | _]} = TypeSafeAPI.models(client)
+models = TypeSafeAPI.models!(client)
+
+model.release_date       #=> ~D[2026-09-15], or nil
+model.release_date_raw   #=> "2026-09-15T00:00:00Z"
+model.raw                #=> the whole entry, unmodeled fields included
 ```
+
+An entry this library cannot decode is logged and skipped, not fatal to the list.
 
 ## Answers
 {: .col-2}
@@ -144,13 +172,16 @@ TypeSafe.evaluate_many(client, states, questions,
 ### Shapes
 
 ```elixir
-%TypeSafe.Answer.Noul{id: :urgent, noul: 0.92}
+%TypeSafeAPI.Answer.Noul{id: :urgent, noul: 0.92,
+  confidence: 0.92}   # max(noul, 1 - noul), never below 0.5
 
-%TypeSafe.Answer.Choice{id: :dept, choice: :technical,
+%TypeSafeAPI.Answer.Choice{id: :dept, choice: :technical,
+  description: "Bugs, outages, integrations",
   probabilities: %{billing: 0.08, technical: 0.85, sales: 0.07},
+  options: [{:billing, 0.08}, {:technical, 0.85}, {:sales, 0.07}],
   confidence: 0.82}
 
-%TypeSafe.Answer.Score{id: :anger, score: 1.6,
+%TypeSafeAPI.Answer.Score{id: :anger, score: 1.6,
   level: 2, label: "Very angry", description: "Very angry",
   levels: [{"Calm", 0.05}, {"Frustrated", 0.3}, {"Very angry", 0.65}],
   probabilities: %{0 => 0.05, 1 => 0.3, 2 => 0.65},
@@ -160,13 +191,16 @@ TypeSafe.evaluate_many(client, states, questions,
 ### Helpers
 
 ```elixir
-TypeSafe.Answer.yes?(answers.urgent)          # noul >= 0.5 (Noul only)
-TypeSafe.Answer.yes?(answers.urgent, 0.7)
-TypeSafe.Answer.gate(answers.dept, act: 0.8, review: 0.5)
+TypeSafeAPI.Answer.yes?(answers.urgent)          # noul >= 0.5 (Noul only)
+TypeSafeAPI.Answer.yes?(answers.urgent, 0.7)
+# yes?/2 on a Choice or Score raises ArgumentError
+TypeSafeAPI.Answer.gate(answers.dept, act: 0.8, review: 0.5)
 #=> :act | :review | :escalate
-TypeSafe.Answer.confidence(answer)            # what gate/2 uses
+TypeSafeAPI.Answer.gate(answers.urgent, act: 0.8, review: 0.55)
+# a Noul needs review > 0.5, or :escalate is unreachable (raises)
+TypeSafeAPI.Answer.confidence(answer)            # what gate/2 uses
 # Noul has no wire confidence; this library uses max(noul, 1 - noul)
-TypeSafe.Answer.Score.normalized(answers.anger) # score / top level
+TypeSafeAPI.Answer.Score.normalized(answers.anger) # score / top level
 ```
 
 ## Errors
@@ -175,11 +209,11 @@ TypeSafe.Answer.Score.normalized(answers.anger) # score / top level
 ### Match on type
 
 ```elixir
-case TypeSafe.evaluate(client, state, questions) do
+case TypeSafeAPI.evaluate(client, state, questions) do
   {:ok, result} -> ...
-  {:error, %TypeSafe.Error{type: :rate_limited, retry_after_ms: ms}} -> ...
-  {:error, %TypeSafe.Error{type: :validation, message: msg}} -> ...
-  {:error, %TypeSafe.Error{type: type}} when type in [:timeout, :connection] -> ...
+  {:error, %TypeSafeAPI.Error{type: :rate_limited, retry_after_ms: ms}} -> ...
+  {:error, %TypeSafeAPI.Error{type: :validation, message: msg}} -> ...
+  {:error, %TypeSafeAPI.Error{type: type}} when type in [:timeout, :connection] -> ...
 end
 ```
 
@@ -192,9 +226,12 @@ end
 | 422             | `:validation`, or caught locally (`status: nil`) |
 | 429             | `:rate_limited` after retries          |
 | 529 / 503       | `:overloaded` after retries            |
-| 408             | retried, then `:unexpected`            |
+| other 5xx       | `:server_error` after retries          |
+| 408             | retried, then `:timeout`               |
 | n/a             | `:timeout` (no response in time), `:connection` (could not reach the server) |
-| anything else   | `:unexpected`                          |
+| anything else   | `:unexpected` (a response nothing could read) |
+
+`TypeSafeAPI.Error.retryable?/1` says whether a given error was worth another try.
 
 ## Testing
 {: .col-2}
@@ -203,11 +240,11 @@ end
 
 ```elixir
 setup :typesafe_stubs
-def typesafe_stubs(ctx), do: TypeSafe.Test.typesafe_stubs(ctx)
+def typesafe_stubs(ctx), do: TypeSafeAPI.Test.typesafe_stubs(ctx)
 
 client =
-  TypeSafe.Test.client()
-  |> TypeSafe.Test.stub(
+  TypeSafeAPI.Test.client()
+  |> TypeSafeAPI.Test.stub(
     urgent: {:noul, 0.3},
     dept: {:choice, :billing, 0.9},
     anger: {:score, 1, 0.8}
@@ -217,12 +254,27 @@ client =
 ### Errors and models
 
 ```elixir
-TypeSafe.Test.stub_error(client, 429, %{"error" => "slow"},
-  [{"retry-after", "1"}])
+TypeSafeAPI.Test.stub_error(client, 429, %{"error" => "slow"},
+  headers: [{"retry-after", "1"}], times: 1)
 
-TypeSafe.Test.stub_models(client,
+TypeSafeAPI.Test.stub_models(client,
   [%{name: "jev-1", release_date: ~D[2026-01-01]}])
 ```
+
+Helpers compose: models, answers and errors can all
+sit on one client. `confidence` must beat `1 / n`.
+An unstubbed question is a 422, not a raise.
+
+### Record and replay
+
+```elixir
+TypeSafeAPI.new()
+|> TypeSafeAPI.Test.record("test/fixtures/t.jsonl")
+
+TypeSafeAPI.Test.replay("test/fixtures/t.jsonl")
+```
+
+JSON Lines, one response per line, errors included.
 
 ## Raw layer and telemetry
 {: .col-2}
@@ -230,21 +282,51 @@ TypeSafe.Test.stub_models(client,
 ### Maps in, maps out
 
 ```elixir
-TypeSafe.HTTP.post(client, "/v1/systemone", %{
+TypeSafeAPI.HTTP.post(client, "/v1/systemone", %{
   "state" => "...", "model" => "jev-latest",
   "questions" => %{"q" => %{"type" => "noul", "instructions" => "?"}}
 })
-TypeSafe.HTTP.get(client, "/v1/models")
+TypeSafeAPI.HTTP.get(client, "/v1/models")
+
+# unknown question types (e.g. "bounding_box"): post raw against
+# TypeSafeAPI.SystemOne.path/0, read the decoded map back
+TypeSafeAPI.HTTP.post(client, TypeSafeAPI.SystemOne.path(), %{
+  "state" => "...", "model" => client.model,
+  "questions" => %{"region" => %{"type" => "bounding_box"}}
+})
 ```
 
 ### Telemetry
 
 ```elixir
-# [:typesafe, :request, :start | :stop | :exception]
+# [:typesafe_api, :request, :start | :stop | :exception]
 # start metadata:  model, question_count
 # stop metadata:   + status, retry_count, input_tokens, output_tokens, error
-# (error is a TypeSafe.Error on failure, nil on success; API failures are
+# (error is a TypeSafeAPI.Error on failure, nil on success; API failures are
 #  :stop events, not :exception — :exception only fires when code raises)
-TypeSafe.Telemetry.attach_logger(level: :info)
-TypeSafe.Telemetry.detach_logger()
+TypeSafeAPI.Telemetry.attach_logger(level: :info)
+TypeSafeAPI.Telemetry.detach_logger()
 ```
+
+## Limits
+{: .col-2}
+
+### What's ours vs. what's the spec's
+
+`priv/openapi.json` is TypeSafe's OpenAPI document, API version `0.2.0`. Most of the
+bounds this library enforces are local policy, not requirements the spec itself states;
+where they're stricter than the spec, that's because a live run against the real API
+rejected values the spec alone would have allowed (see `DESIGN.md`).
+
+| limit                    | our validator | spec                                         | source                                    |
+| ------------------------- | -------------- | --------------------------------------------- | ------------------------------------------ |
+| Choice options, min        | 1              | no bound (`ChoiceQuestion.criteria` unconstrained) | local policy — an empty option set asks nothing |
+| Choice options, max        | 255            | no bound                                       | local policy — matches a live-API 400 observed at 256 |
+| Score levels, min           | 2              | `ScoreQuestion.criteria` `minItems: 1`         | local policy — a one-level score is meaningless |
+| Score levels, max           | 10             | no bound                                       | local policy — matches a live-API 400 observed at 11 |
+| questions per request, min | 1              | `SystemOneRequest.questions` `minProperties: 1` | spec — this library just surfaces it as a `:validation` error |
+| `instructions`              | optional everywhere | optional everywhere (nullable/omittable on every question type) | spec |
+
+`Choice.validate/1` and `Score.validate/1` (in `TypeSafeAPI.Question.Choice` and
+`TypeSafeAPI.Question.Score`) are where the local bounds live; see their moduledocs for
+the same table alongside the code that enforces it.

@@ -12,7 +12,7 @@ A voice banking assistant classifies what the user asked for:
 
 ```elixir
 defmodule MyBank.Voice do
-  @intent TypeSafe.choice("What action is the user requesting?",
+  @intent TypeSafeAPI.choice("What action is the user requesting?",
             check_balance: "Check the balance of an account",
             approve_transfer: "Approve the pending transfer request",
             other: "Something else"
@@ -29,7 +29,7 @@ defmodule MyBank.Voice do
   # ... @intent and intent/0 from above ...
 
   def handle(client, account_id, transcript) do
-    with {:ok, result} <- TypeSafe.evaluate(client, transcript, intent: intent()) do
+    with {:ok, result} <- TypeSafeAPI.evaluate(client, transcript, intent: intent()) do
       {:ok, route(account_id, result.answers.intent)}
     end
   end
@@ -57,19 +57,25 @@ end
 The 0.6 floor catches anything the model is genuinely unsure about. Above the floor, each
 action has its own threshold set by the cost of being wrong.
 
-## `TypeSafe.Answer.gate/2`
+## `TypeSafeAPI.Answer.gate/2`
 
 When a single pair of thresholds is enough, `gate/2` turns the confidence into one of
 three verdicts:
 
 ```elixir
-case TypeSafe.Answer.gate(result.answers.intent, act: 0.85, review: 0.6) do
+case TypeSafeAPI.Answer.gate(result.answers.intent, act: 0.85, review: 0.6) do
   :act -> perform(result.answers.intent.choice)
   :review -> ask_user_to_confirm(result.answers.intent.choice)
   :escalate -> route_to_support_agent()
 end
 ```
 
-For Noul answers, which have no separate confidence field, `gate/2` uses how far the
-probability sits from 0.5 (`max(noul, 1 - noul)`), so a 0.05 "no" gates the same as a
-0.95 "yes".
+For Noul answers, whose `confidence` this library derives rather than reads off the wire,
+`gate/2` uses how far the probability sits from 0.5 (`max(noul, 1 - noul)`), so a 0.05
+"no" gates the same as a 0.95 "yes".
+
+That value has a floor of 0.5, so a `review:` threshold at or below 0.5 gives a Noul
+answer an `:escalate` band it can never reach. `gate/2` raises `ArgumentError` on one
+rather than quietly never escalating: for a Noul, put `review:` just above 0.5
+(`review: 0.55`, say). Choice and Score confidences come from the API and can be
+anything in `0.0..1.0`, so they take any thresholds.

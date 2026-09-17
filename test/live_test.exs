@@ -1,4 +1,4 @@
-defmodule TypeSafe.LiveTest do
+defmodule TypeSafeAPI.LiveTest do
   @moduledoc """
   Hits the real API. Excluded by default; run with:
 
@@ -17,21 +17,21 @@ defmodule TypeSafe.LiveTest do
   end
 
   setup_all do
-    %{client: TypeSafe.new()}
+    %{client: TypeSafeAPI.new()}
   end
 
   test "evaluates the README example against the live API", %{client: client} do
     {:ok, result} =
-      TypeSafe.evaluate(client, "Help! My payouts have been failing for 3 days.",
-        urgent: TypeSafe.noul("Does this convey urgency?"),
+      TypeSafeAPI.evaluate(client, "Help! My payouts have been failing for 3 days.",
+        urgent: TypeSafeAPI.noul("Does this convey urgency?"),
         dept:
-          TypeSafe.choice("Which team should handle this?",
+          TypeSafeAPI.choice("Which team should handle this?",
             billing: "Payments, invoicing, refunds",
             technical: "Bugs, outages, integrations",
             sales: nil
           ),
         anger:
-          TypeSafe.score("How frustrated is the customer?", ["Calm", "Frustrated", "Very angry"])
+          TypeSafeAPI.score("How frustrated is the customer?", ["Calm", "Frustrated", "Very angry"])
       )
 
     assert is_binary(result.model)
@@ -44,7 +44,7 @@ defmodule TypeSafe.LiveTest do
   end
 
   test "lists models", %{client: client} do
-    assert {:ok, [%TypeSafe.Model{name: name} | _]} = TypeSafe.models(client)
+    assert {:ok, [%TypeSafeAPI.Model{name: name} | _]} = TypeSafeAPI.models(client)
     assert is_binary(name)
   end
 end

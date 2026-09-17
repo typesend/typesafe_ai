@@ -45,6 +45,38 @@ jobs:
       - run: mix credo --strict
       - run: mix test
 
+  example:
+    name: Example app (support_triage)
+    runs-on: ubuntu-24.04
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.3"
+          elixir-version: "1.18.4"
+
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            examples/support_triage/deps
+            examples/support_triage/_build
+          key: example-${{ runner.os }}-27.3-1.18.4-${{ hashFiles('examples/support_triage/mix.lock') }}
+          restore-keys: example-${{ runner.os }}-27.3-1.18.4-
+
+      # No secrets: the suite runs entirely on TypeSafeAPI.Test stubs.
+      - run: mix deps.get
+        working-directory: examples/support_triage
+      - run: mix format --check-formatted
+        working-directory: examples/support_triage
+      - run: mix compile --warnings-as-errors
+        working-directory: examples/support_triage
+      - run: mix test
+        working-directory: examples/support_triage
+
   dialyzer:
     name: Dialyzer
     runs-on: ubuntu-24.04

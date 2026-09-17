@@ -1,4 +1,4 @@
-defmodule TypeSafe.StubCase do
+defmodule TypeSafeAPI.StubCase do
   @moduledoc """
   Test support: builds clients routed through `Req.Test` and a fake clock so
   retry tests never sleep for real.
@@ -8,7 +8,7 @@ defmodule TypeSafe.StubCase do
 
   using do
     quote do
-      import TypeSafe.StubCase
+      import TypeSafeAPI.StubCase
       import Plug.Conn, only: [send_resp: 3, put_resp_header: 3, get_req_header: 2]
     end
   end
@@ -18,13 +18,13 @@ defmodule TypeSafe.StubCase do
     :ok
   end
 
-  @stub_name TypeSafe.StubCase
+  @stub_name TypeSafeAPI.StubCase
 
   @doc "The `Req.Test` stub name used by `client/1`."
   def stub_name, do: @stub_name
 
   @doc "A client whose requests go to the `Req.Test` stub named `stub_name/0`."
-  def client(opts \\ []), do: TypeSafe.Test.client([name: @stub_name] ++ opts)
+  def client(opts \\ []), do: TypeSafeAPI.Test.client([name: @stub_name] ++ opts)
 
   @doc "Registers a stub plug function for the current test."
   def stub(fun) when is_function(fun, 1), do: Req.Test.stub(@stub_name, fun)
@@ -45,7 +45,7 @@ defmodule TypeSafe.StubCase do
   end
 
   @doc "Builds a stub reply function for a JSON response."
-  def json(status, body, headers \\ []), do: &TypeSafe.Test.json(&1, status, body, headers)
+  def json(status, body, headers \\ []), do: &TypeSafeAPI.Test.json(&1, status, body, headers)
 
   @doc "Builds a stub reply function that simulates a transport error."
   def transport_error(reason), do: &Req.Test.transport_error(&1, reason)

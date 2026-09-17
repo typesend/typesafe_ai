@@ -18,7 +18,7 @@ know whether a refund is being requested. Ask all of it at once:
 defmodule MyApp.Triage do
   @questions [
     category:
-      TypeSafe.choice("Determine the broad category of this support ticket",
+      TypeSafeAPI.choice("Determine the broad category of this support ticket",
         bug_report: "The user is reporting something that is broken or producing errors",
         billing: "Charges, invoices, refunds, subscriptions",
         feature_request: "The user is requesting new functionality",
@@ -26,17 +26,17 @@ defmodule MyApp.Triage do
         other: "Anything else"
       ),
     bug_severity:
-      TypeSafe.score("How severe is the reported issue", [
+      TypeSafeAPI.score("How severe is the reported issue", [
         "Cosmetic; no impact to functionality",
         "Broken or degraded feature; workaround exists",
         "Blocking issue; no workaround exists"
       ]),
     has_reproducible_steps:
-      TypeSafe.noul("The user describes specific steps to reproduce the issue"),
+      TypeSafeAPI.noul("The user describes specific steps to reproduce the issue"),
     refund_requested:
-      TypeSafe.noul("The user is explicitly asking for a refund or credit"),
+      TypeSafeAPI.noul("The user is explicitly asking for a refund or credit"),
     frustration:
-      TypeSafe.score("How frustrated the user appears", [
+      TypeSafeAPI.score("How frustrated the user appears", [
         "Calm, matter-of-fact",
         "Frustrated but civil",
         "Very angry"
@@ -57,7 +57,7 @@ defmodule MyApp.Triage do
   # ... @questions from above ...
 
   def run(client, ticket) do
-    with {:ok, result} <- TypeSafe.evaluate(client, ticket.body, @questions) do
+    with {:ok, result} <- TypeSafeAPI.evaluate(client, ticket.body, @questions) do
       {:ok, route(ticket, result.answers)}
     end
   end
@@ -66,14 +66,14 @@ defmodule MyApp.Triage do
     actions =
       case answers.category.choice do
         :bug_report ->
-          if answers.bug_severity.score > 1.5 and TypeSafe.Answer.yes?(answers.has_reproducible_steps, 0.6) do
+          if answers.bug_severity.score > 1.5 and TypeSafeAPI.Answer.yes?(answers.has_reproducible_steps, 0.6) do
             [{:escalate_to_engineering, ticket.id, severity: :high}]
           else
             [{:add_to_bug_backlog, ticket.id}]
           end
 
         :billing ->
-          if TypeSafe.Answer.yes?(answers.refund_requested, 0.7),
+          if TypeSafeAPI.Answer.yes?(answers.refund_requested, 0.7),
             do: [{:route_to_billing, ticket.id, refund_likely: true}],
             else: [{:route_to_billing, ticket.id, []}]
 
@@ -103,14 +103,14 @@ you wrote in the question.
 
 ## Testing the routing without the API
 
-`TypeSafe.Test` lets you stub each answer by id, so the routing logic is testable in
+`TypeSafeAPI.Test` lets you stub each answer by id, so the routing logic is testable in
 isolation:
 
 ```elixir
 test "escalates severe, reproducible bugs" do
   client =
-    TypeSafe.Test.client()
-    |> TypeSafe.Test.stub(
+    TypeSafeAPI.Test.client()
+    |> TypeSafeAPI.Test.stub(
       category: {:choice, :bug_report, 0.95},
       bug_severity: {:score, 2, 0.9},
       has_reproducible_steps: {:noul, 0.8},
