@@ -20,7 +20,7 @@ Add `typesafe_api` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:typesafe_api, "~> 0.1.0-alpha.2"},
+    {:typesafe_api, "~> 0.1.0-alpha.3"},
     # optional, for TypeSafeAPI.Test stubs in your test suite
     {:plug, "~> 1.16", only: :test}
   ]

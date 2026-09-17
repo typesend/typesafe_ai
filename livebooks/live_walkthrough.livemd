@@ -2,7 +2,7 @@
 
 ```elixir
 Mix.install([
-  {:typesafe_api, path: Path.expand("..", __DIR__)}
+  {:typesafe_api, "~> 0.1.0-alpha.3"}
 ])
 ```
 
@@ -38,11 +38,13 @@ questions = [
 
 ## What goes over the wire
 
-`prepare/1` validates and encodes once. The encoded questions are an ordered object so the
-API sees them in the order you wrote them.
+`TypeSafeAPI.prepare/1` validates the question set and serializes it once. The encoded
+questions keep the order you wrote them in, and a batch splices the same bytes into every
+request instead of encoding the questions again per state.
 
 ```elixir
-{:ok, prepared} = TypeSafeAPI.SystemOne.prepare(questions)
+{:ok, prepared} = TypeSafeAPI.prepare(questions)
+prepared
 body = %{"state" => state, "model" => client.model, "questions" => prepared.encoded}
 
 req = TypeSafeAPI.HTTP.build(client, :post, TypeSafeAPI.SystemOne.path(), body)

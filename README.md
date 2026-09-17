@@ -37,7 +37,7 @@ that speaks maps, for the parts of the API this library does not model yet.
 ```elixir
 def deps do
   [
-    {:typesafe_api, "~> 0.1.0-alpha.2"},
+    {:typesafe_api, "~> 0.1.0-alpha.3"},
     # optional, for TypeSafeAPI.Test stubs in your test suite
     {:plug, "~> 1.16", only: :test}
   ]

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-09-17
+
+### Fixed
+
+- The Livebook walkthrough shipped with a path dependency that only resolved inside a clone,
+  so the "Run in Livebook" badge failed to install. It now installs the package from Hex and
+  describes the cached question encoding.
+
 ## [0.1.0-alpha.2] - 2026-09-17
 
 ### Changed
@@ -161,6 +169,7 @@ test before the fix. Several are breaking for alpha.1 callers.
 - `livebooks/live_walkthrough.livemd`, a Livebook notebook that runs the README example
   against the live API and shows the request, raw response, and typed result.
 
-[Unreleased]: https://github.com/typesend/typesafe_ai/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/typesend/typesafe_ai/compare/v0.1.0-alpha.3...HEAD
+[0.1.0-alpha.3]: https://github.com/typesend/typesafe_ai/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/typesend/typesafe_ai/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/typesend/typesafe_ai/releases/tag/v0.1.0-alpha.1
