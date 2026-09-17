@@ -47,6 +47,8 @@ type Error struct {
 	Err error
 }
 
+// Error formats the error as "typesafe: <type> (HTTP <status>): <message>",
+// omitting the status for local errors.
 func (e *Error) Error() string {
 	if e.Status == 0 {
 		return fmt.Sprintf("typesafe: %s: %s", e.Type, e.Message)

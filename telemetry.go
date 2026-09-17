@@ -8,6 +8,16 @@ import "time"
 // is no separate exception path.
 //
 // Hooks run synchronously on the calling goroutine; keep them fast.
+//
+//	hooks := typesafe.Hooks{OnResponse: func(i typesafe.ResponseInfo) {
+//		if i.Err != nil {
+//			log.Printf("typesafe %s %s: %v", i.Method, i.Path, i.Err)
+//		}
+//		if i.InputTokens >= 0 {
+//			tokens.Add(float64(i.InputTokens + i.OutputTokens))
+//		}
+//		latency.Observe(i.Duration.Seconds())
+//	}}
 type Hooks struct {
 	// OnRequest is called before the first attempt.
 	OnRequest func(RequestInfo)

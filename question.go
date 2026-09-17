@@ -309,6 +309,7 @@ type orderedPair struct {
 
 type orderedObject []orderedPair
 
+// MarshalJSON writes the pairs as a JSON object in slice order.
 func (o orderedObject) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')

@@ -15,6 +15,28 @@ import (
 // The budget gates the decision to start a retry, not an in-flight attempt:
 // worst-case wall time is roughly Budget plus one attempt Timeout.
 //
+// With the defaults (10s attempt timeout, 500ms then 1s backoff, 30s
+// budget):
+//
+//	three 529s      -> attempt, ~0.5s, attempt, ~1s, attempt, ErrOverloaded in about 1.5s
+//	Retry-After: 20 -> attempt, 20s, attempt; a second Retry-After: 20 is
+//	                   refused because 20s + 20s reaches the 30s budget
+//	slow server     -> each attempt may take up to 10s, so a call can run
+//	                   to about 40s before the last error is returned
+//
+// Official SDK option names map as follows (durations here are
+// time.Duration rather than float seconds):
+//
+//	max_retries          MaxRetries
+//	backoff_initial      BackoffInitial
+//	backoff_max          BackoffMax
+//	backoff_jitter       BackoffJitter
+//	http_statuses        Statuses
+//	respect_retry_after  RespectRetryAfter
+//	api_connection_error RetryConnectionErrors
+//	api_timeout_error    RetryTimeoutErrors
+//	timeout              Budget
+//
 // When both retry-after-ms and Retry-After are present, retry-after-ms
 // wins. Retry-After may be seconds or an HTTP date. Unlike the JS SDK there
 // is no cap on a server-supplied delay other than the budget.

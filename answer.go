@@ -37,8 +37,12 @@ func Gate(a Answer, act, review float64) GateVerdict {
 type GateVerdict string
 
 const (
-	GateAct      GateVerdict = "act"
-	GateReview   GateVerdict = "review"
+	// GateAct means confidence reached the act threshold: safe to act on.
+	GateAct GateVerdict = "act"
+	// GateReview means confidence reached the review threshold but not act:
+	// act after a confirmation step.
+	GateReview GateVerdict = "review"
+	// GateEscalate means confidence fell below both thresholds: hand off.
 	GateEscalate GateVerdict = "escalate"
 )
 
@@ -48,6 +52,7 @@ type NoulAnswer struct {
 	Noul float64
 }
 
+// ID is the question id this answer belongs to.
 func (a *NoulAnswer) ID() string { return a.id }
 
 // Confidence is max(Noul, 1-Noul): how far the probability sits from 0.5.
@@ -69,7 +74,10 @@ type ChoiceAnswer struct {
 	confidence    float64
 }
 
-func (a *ChoiceAnswer) ID() string          { return a.id }
+// ID is the question id this answer belongs to.
+func (a *ChoiceAnswer) ID() string { return a.id }
+
+// Confidence is the API's confidence in Choice, from 0 to 1.
 func (a *ChoiceAnswer) Confidence() float64 { return a.confidence }
 
 // ScoreAnswer is a position on the scale with the full distribution.
@@ -99,7 +107,10 @@ type LevelProbability struct {
 	Probability float64
 }
 
-func (a *ScoreAnswer) ID() string          { return a.id }
+// ID is the question id this answer belongs to.
+func (a *ScoreAnswer) ID() string { return a.id }
+
+// Confidence is the API's confidence in the score, from 0 to 1.
 func (a *ScoreAnswer) Confidence() float64 { return a.confidence }
 
 // Normalized is Score divided by the top level index, so scales with

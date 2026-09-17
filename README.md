@@ -203,6 +203,11 @@ moving that call to the raw layer: there is no extra-body escape inside `Evaluat
 - The only real ceiling is the shared token budget, roughly 32,000 tokens per request. A
   Choice needs 2 to 255 options and a Score 2 to 10 levels, both enforced locally.
 
+## Patterns
+
+[docs/patterns.md](docs/patterns.md) translates TypeSafe's three recommended patterns
+into Go: speculative fan-out, confidence-gated routing, and composite scoring.
+
 ## Security
 
 The API key is redacted from `String()` and `%#v`, and never appears in hook data or error
