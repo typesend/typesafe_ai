@@ -387,7 +387,9 @@ Every state in `EvaluateMany`/`EvaluateStream` runs under its own timeout with p
 recovered, retry sleeps stop on context cancellation, the default transport keeps
 connections alive for fan-out, telemetry hooks cannot fail a request, and response bodies
 are bounded. [docs/beam-vs-go.md](docs/beam-vs-go.md) explains where the Go client matches
-the Elixir client's BEAM-backed guarantees and where it cannot.
+the Elixir client's BEAM-backed guarantees and where it cannot, and
+[docs/debate-report.md](docs/debate-report.md) records a judged adversarial debate between
+the two clients.
 
 ## Patterns
 
