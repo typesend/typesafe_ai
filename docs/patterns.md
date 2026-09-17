@@ -1,7 +1,21 @@
 # TypeSafe patterns in Go
 
 The three patterns from TypeSafe's docs, translated. Each assumes a `client` built with
-`typesafe.New` and a `ctx`.
+`typesafe.New` and a `ctx` (a `context.Context`, typically the one already flowing through
+your request handler or job).
+
+- [Speculative fan-out](https://docs.typesafe.ai/patterns/speculative-fan-out)
+- [Confidence-gated routing](https://docs.typesafe.ai/patterns/confidence-gated-routing)
+- [Composite scoring](https://docs.typesafe.ai/patterns/composite-scoring)
+
+Two caveats that apply to all three: a Choice's `Probabilities` is a genuine distribution
+over the options you defined, while a Score's `Score` is a single weighted position derived
+from that distribution (`Level`, the argmax, can point at a different level than `Score`
+would round to when the distribution is not unimodal) — see "Level (argmax) vs Score
+(weighted)" in the README. And every pattern below fits inside the shared per-request token
+budget, roughly 32,000 tokens; the speculative fan-out pattern in particular can approach
+that ceiling if a `state` is long and every question is used, so measure `Usage` on a
+representative input before shipping.
 
 ## Speculative fan-out
 

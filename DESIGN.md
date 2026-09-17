@@ -28,13 +28,31 @@ full list. What differs here is how the same behaviour is expressed in Go.
   the smallest thing that lets a caller feed Prometheus or OpenTelemetry. Failures arrive
   through `OnResponse` with `Err` set, mirroring the Elixir `:stop` event with
   `metadata.error`.
-- **`EvaluateMany` uses a semaphore and a WaitGroup**, returns outcomes in input order,
-  and reports the question-set validation error once, before any request.
+- **`EvaluateMany` and `EvaluateStream` share one engine**: a fixed pool of
+  `MaxConcurrency` workers pulls from the input (a slice for `EvaluateMany`, an
+  `iter.Seq[State]` for `EvaluateStream`), so admission is bounded, not just the number of
+  in-flight requests. `EvaluateMany` collects outcomes in input order; `EvaluateStream`
+  yields `(index, Outcome)` pairs in completion order and stops issuing new work as soon as
+  the consumer stops ranging or the context is cancelled. Both report the question-set
+  validation error once, before any request.
+- **`RetryPolicy`'s zero value is the default policy.** Every zero field means "use the
+  default" rather than "disable this"; `MaxRetries: -1` disables retries and `Budget: -1`
+  disables the budget, so those are the only two fields with a meaningful negative value.
+  `RetryPolicy{MaxRetries: 5}` therefore changes only the retry count. `Sleep` and `Now`
+  are exported fields (not an unexported hook) so a caller's own tests can inject a clock
+  without needing an in-package test.
+- **`CallOptions.Metadata`** is an opaque `map[string]any` carried unchanged into
+  `Hooks.OnRequest`/`OnResponse` as `RequestInfo.Metadata`, for labelling telemetry with a
+  tenant, trace id, or feature name without inventing a wrapper type.
+- **State validation rejects every scalar kind** (`reflect.Kind` other than string, map,
+  slice, array, struct, or a pointer to one of those), not a hand-picked list, so a bare
+  `int`, `bool`, or `float64` passed as `state` fails locally with `ErrValidation` instead
+  of reaching the server.
 - **`typesafetest` is a real HTTP server** (`httptest`), so the client under test runs its
   full transport, retry, and decode path. Unstubbed questions fail the test.
 - **Milliseconds become `time.Duration`.** Same defaults as the official SDKs.
-- **Retry clock injection is unexported.** Tests in-package set `sleep` and `now`; there
-  is no public hook for it.
+- **Retry clock injection is public.** `RetryPolicy.Sleep` and `RetryPolicy.Now` replace
+  the clock for both in-package and external tests of code that depends on retry timing.
 
 ## Deliberate differences from the Elixir client
 

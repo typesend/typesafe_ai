@@ -36,4 +36,11 @@
 // Two layers: the typed API above, and a raw layer (Client.Post, Client.Get,
 // Client.Do) that speaks map[string]any for parts of the API this package
 // does not model yet.
+//
+// See also: New reads TYPESAFE_API_KEY, TYPESAFE_BASE_URL, and
+// TYPESAFE_DEFAULT_MODEL from the environment; EvaluateMany and
+// EvaluateStream run many states against one question set with bounded
+// concurrency; RetryPolicy configures retries and the per-call time budget;
+// Hooks reports telemetry for every call; and package typesafetest stubs
+// the API for tests without a key or network.
 package typesafe

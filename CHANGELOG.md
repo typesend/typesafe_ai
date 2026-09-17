@@ -14,9 +14,20 @@ All notable changes to the Go client are documented here. The format follows
   `TYPESAFE_*` environment variables.
 - `Client.Evaluate`, `EvaluatePrepared`, and `EvaluateMany` with typed `Noul`, `Choice`,
   and `Score` questions and answers; Choice options keep caller order on the wire.
+- `Client.EvaluateStream`, an `iter.Seq2[int, Outcome]` over an `iter.Seq[State]`: the same
+  bounded-concurrency worker pool as `EvaluateMany`, but yielding outcomes as they complete
+  instead of waiting for the whole batch, for inputs too large to hold in memory. Both now
+  share one worker pool, so admission (not just in-flight requests) is bounded by
+  `MaxConcurrency`.
 - `Client.Models` for `GET /v1/models`.
 - `RetryPolicy` mirroring the official SDKs, including `retry-after-ms`, `Retry-After`
-  (seconds or HTTP date), and a total time budget per call.
+  (seconds or HTTP date), and a total time budget per call. The zero value is now the
+  default policy: every zero field means "use the default" (`MaxRetries: -1` disables
+  retries, `Budget: -1` disables the budget), so `RetryPolicy{MaxRetries: 5}` changes only
+  the retry count. `RetryPolicy.Sleep` and `RetryPolicy.Now` are exported clock hooks for
+  tests that depend on retry timing.
+- `CallOptions.Metadata`, passed through unchanged to `Hooks` as `RequestInfo.Metadata`,
+  for labelling telemetry with a tenant, trace id, or feature name.
 - Raw layer: `Client.Post`, `Client.Get`, and `Client.Do` returning a `Response` with
   headers and `RequestID`.
 - `*typesafe.Error` with a `Type` for `auth`, `validation`, `rate_limited`, `overloaded`,
