@@ -243,7 +243,7 @@ func TestRetriesConnectionAndTimeoutErrors(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(&calls, 1) == 1 {
-			time.Sleep(200 * time.Millisecond) // exceeds the 50ms attempt timeout
+			time.Sleep(400 * time.Millisecond) // exceeds the 50ms attempt timeout
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))

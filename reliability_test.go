@@ -44,7 +44,10 @@ func TestDefaultTransportKeepsConnectionsAlive(t *testing.T) {
 	if _, err := client.EvaluateMany(context.Background(), states, typesafe.Questions{"q": typesafe.Noul("?")}, typesafe.ManyOptions{MaxConcurrency: 8}); err != nil {
 		t.Fatal(err)
 	}
-	if n := atomic.LoadInt32(&conns); n > 8 {
+	// With keep-alive, 40 requests at concurrency 8 need about 8 connections;
+	// goroutines racing for the idle pool can open a few more. Without pooling
+	// (Go's default of 2 idle per host) this climbs toward 40.
+	if n := atomic.LoadInt32(&conns); n > 16 {
 		t.Fatalf("opened %d connections for 40 requests at concurrency 8; pooling is broken", n)
 	}
 }
